@@ -2,5 +2,7 @@
   "name": "OKX Kelly Trading Simulator",
   "description": "Ứng dụng giả lập giao dịch mô phỏng với dữ liệu thực từ OKX. Áp dụng công thức Kelly để quản lý vốn và đánh giá hiệu quả chiến lược.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

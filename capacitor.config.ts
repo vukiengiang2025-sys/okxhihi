@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.okx.quant',
-  appName: 'OKX Quant',
+  appId: 'com.aistudio.okxkelly.kxmpzq',
+  appName: 'OKX Kelly Trading Simulator',
   webDir: 'dist'
 };
 
