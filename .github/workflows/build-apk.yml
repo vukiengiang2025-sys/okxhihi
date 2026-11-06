@@ -24,12 +24,15 @@ jobs:
           java-version: '21'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.9.0'
-      - name: Accept Android SDK licenses and install platform
-        run: yes | sdkmanager --licenses >/dev/null; sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Run unit tests, lint, and assemble debug APK
         run: gradle testDebugUnitTest lint assembleDebug --stacktrace
       - name: Upload debug APK
