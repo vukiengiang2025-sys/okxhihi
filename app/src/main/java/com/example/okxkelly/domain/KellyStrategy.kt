@@ -51,7 +51,7 @@ object KellyStrategy {
         val rsi = calculateRSI(bars, 14)
         val trades = mutableListOf<Trade>()
         var openTrade: Trade? = null
-        for (i in 14 until bars.size) {
+        for (i in 15 until bars.size) {
             val candle = bars[i]
             if (openTrade != null) {
                 val highestProfit = (candle.high - openTrade.entryPrice) / openTrade.entryPrice
@@ -65,7 +65,7 @@ object KellyStrategy {
                     openTrade = null
                 }
             }
-            if (openTrade == null && rsi[i - 1] > 0.0 && rsi[i - 1] < 30.0 && rsi[i] >= 30.0) {
+            if (openTrade == null && rsi[i - 1] < 30.0 && rsi[i] >= 30.0) {
                 openTrade = Trade(type = "BUY", entryPrice = candle.close, entryTime = candle.timestamp)
             }
         }
