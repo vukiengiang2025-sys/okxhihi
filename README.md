@@ -1,22 +1,26 @@
 # OKX Kelly Trading Simulator (Android)
 
-Ứng dụng Android native (Kotlin + Jetpack Compose) mô phỏng chiến lược giao dịch định lượng dựa trên công thức Kelly và chỉ báo kỹ thuật RSI với dữ liệu thị trường thực tế từ OKX.
+Ứng dụng Android native bằng Kotlin/Jetpack Compose để nghiên cứu chiến lược RSI/Kelly trên dữ liệu nến công khai từ OKX. Ứng dụng chỉ mô phỏng, không gửi lệnh và không cần API key OKX. Đây không phải tư vấn đầu tư; mọi kết quả backtest/forward simulation đều có thể khác giao dịch thực tế.
 
-## Tính năng chính
-- **Tích hợp OKX Market API**: Lấy dữ liệu nến giá thực tế (1m, 5m, 15m, 1H) trực tiếp từ sàn OKX.
-- **Đánh giá chiến lược (Backtest & Calibration)**: Tính toán Win Rate (p), tỷ lệ lời/lỗ (b = win/loss ratio), và tỷ lệ phân bổ vốn tối ưu theo công thức Kelly ($f^* = p - \frac{1-p}{b}$).
-- **Giả lập giao dịch thời gian thực (Forward Simulator)**:
-  - Chế độ chạy: Liên tục, 1 lệnh, hoặc N lệnh.
-  - Phân bổ vốn linh hoạt: Half Kelly (0.5x), Full Kelly (1.0x), Conservative (0.25x).
-  - Tự động theo dõi lệnh mở, điểm Take Profit và Stop Loss.
-- **Biểu đồ tăng trưởng vốn trực quan**: Canvas vẽ đường cong tài sản thực tế theo thời gian kèm biến động PnL.
-- **Gemini AI Quantitative Analyst**: Đánh giá kết quả giao dịch và đưa ra nhận xét rủi ro, phân tích hiệu quả vốn và đề xuất tối ưu hóa thông số.
-- **Giao diện hiện đại**: Phong cách Terminal tài chính định lượng cao cấp (Dark theme, neon lime accent) thiết kế theo Material 3 chuẩn Android.
+## Tính năng
 
-## Kiến trúc kỹ thuật
-- **Ngôn ngữ**: Kotlin
-- **UI**: Jetpack Compose + Material Design 3
-- **Kiến trúc**: MVVM (Model-View-ViewModel) + StateFlow + Coroutines
-- **Networking**: Retrofit 2 + OkHttp 4 + Kotlinx Serialization
-- **Biểu đồ**: Native Compose Canvas Drawing
-- **Bảo mật & Cấu hình**: Secrets Gradle Plugin (.env / .env.example) & SharedPreferences
+- Lấy nến thị trường công khai từ OKX, backtest RSI và tính Kelly fraction từ win rate cùng reward/risk.
+- Mô phỏng forward trên nến đã đóng, xử lý mỗi nến một lần; nếu một nến chạm cả TP lẫn SL thì giả định bảo thủ rằng SL xảy ra trước.
+- Chế độ chạy liên tục, một lệnh hoặc số lệnh giới hạn; biểu đồ vốn và nhật ký giao dịch.
+- Phân tích bằng Gemini là tùy chọn; khóa API do người dùng nhập được mã hóa bằng Android Keystore-backed encrypted preferences.
+
+## Giới hạn quan trọng
+
+Backtest hiện chưa mô hình hóa phí, spread, slippage, funding, thanh khoản, gap-fill hay độ trễ thực thi. Dữ liệu nến OHLC không cho biết thứ tự giá intrabar; trường hợp TP/SL cùng bị chạm được tính theo hướng bất lợi. Kelly nhạy với sai số ước lượng, vì vậy không dùng kết quả mô phỏng làm cam kết lợi nhuận hoặc căn cứ duy nhất để giao dịch.
+
+## Build cục bộ
+
+Yêu cầu JDK 21, Android SDK Platform 36 và Gradle 9.x. Tại thư mục gốc chạy:
+
+```bash
+gradle testDebugUnitTest lint assembleDebug
+```
+
+APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions tự chạy unit tests, lint và build APK khi push/pull request vào `main`; tải artifact từ tab Actions.
+
+Gemini API key có thể nhập trong phần Cài đặt. Không đưa key vào Git hoặc `.env.example`. App hiện chỉ đọc dữ liệu công khai của OKX; các trường khóa OKX cũ trong giao diện chỉ còn để tương thích, không được sử dụng để ký/yêu cầu endpoint riêng tư.

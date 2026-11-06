@@ -23,18 +23,25 @@ interface OkxApiService {
 }
 
 fun parseOkxCandle(row: List<String>): Candle? {
-    if (row.size < 5) return null
+    if (row.size < 9) return null
     return try {
+        val timestamp = row[0].toLongOrNull() ?: return null
+        val open = row[1].toDoubleOrNull() ?: return null
+        val high = row[2].toDoubleOrNull() ?: return null
+        val low = row[3].toDoubleOrNull() ?: return null
+        val close = row[4].toDoubleOrNull() ?: return null
+        if (timestamp <= 0L || listOf(open, high, low, close).any { !it.isFinite() || it <= 0.0 }) return null
+        if (high < maxOf(open, close, low) || low > minOf(open, close, high)) return null
         Candle(
-            timestamp = row[0].toLongOrNull() ?: 0L,
-            open = row[1].toDoubleOrNull() ?: 0.0,
-            high = row[2].toDoubleOrNull() ?: 0.0,
-            low = row[3].toDoubleOrNull() ?: 0.0,
-            close = row[4].toDoubleOrNull() ?: 0.0,
-            vol = if (row.size > 5) row[5].toDoubleOrNull() ?: 0.0 else 0.0,
-            volCcy = if (row.size > 6) row[6].toDoubleOrNull() ?: 0.0 else 0.0,
-            volCcyQuote = if (row.size > 7) row[7].toDoubleOrNull() ?: 0.0 else 0.0,
-            confirm = if (row.size > 8) row[8] == "1" else false
+            timestamp = timestamp,
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            vol = row[5].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+            volCcy = row[6].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+            volCcyQuote = row[7].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+            confirm = row[8] == "1"
         )
     } catch (_: Exception) {
         null
