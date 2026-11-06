@@ -65,7 +65,7 @@ object KellyStrategy {
                     openTrade = null
                 }
             }
-            if (openTrade == null && rsi[i - 1] < 30.0 && rsi[i] >= 30.0) {
+            if (openTrade == null && rsi[i - 1] > 0.0 && rsi[i - 1] < 30.0 && rsi[i] >= 30.0) {
                 openTrade = Trade(type = "BUY", entryPrice = candle.close, entryTime = candle.timestamp)
             }
         }
