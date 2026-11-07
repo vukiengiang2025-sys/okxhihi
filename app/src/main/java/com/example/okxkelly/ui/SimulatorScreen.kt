@@ -83,7 +83,12 @@ import com.example.okxkelly.ui.theme.TextMuted
 import com.example.okxkelly.ui.theme.TextPrimary
 import com.example.okxkelly.ui.theme.TextSecondary
 import com.example.okxkelly.ui.theme.WinGreen
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -176,6 +181,16 @@ fun SimulatorScreen(
                     onKellyMultiplierChange = { viewModel.updateKellyMultiplier(it) },
                     onSimModeChange = { viewModel.updateSimMode(it) },
                     onMaxTradesChange = { viewModel.updateMaxTrades(it) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            item {
+                MarketCandlesCard(
+                    candles = state.liveCandles,
+                    instId = state.instId,
+                    bar = state.bar,
+                    isLoading = state.isCalibrating
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -695,6 +710,60 @@ private fun ParametersCard(
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarketCandlesCard(
+    candles: List<com.example.okxkelly.data.model.Candle>,
+    instId: String,
+    bar: String,
+    isLoading: Boolean
+) {
+    val utcFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm 'UTC'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") } }
+    val priceFormat = remember { DecimalFormat("0.########", DecimalFormatSymbols(Locale.US)) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, BorderDark, RoundedCornerShape(12.dp))
+            .background(SurfaceDark, RoundedCornerShape(12.dp))
+            .padding(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("DỮ LIỆU NẾN OKX", color = LimeAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.weight(1f))
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = LimeAccent, strokeWidth = 2.dp)
+            } else if (candles.isNotEmpty()) {
+                Text("${candles.size} nến đóng", color = TextSecondary, fontSize = 10.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (candles.isEmpty()) {
+            Text(
+                text = if (isLoading) "Đang yêu cầu dữ liệu công khai $instId · $bar…" else "Chưa có dữ liệu. Nhấn Backtest OKX để tải nến; không cần nhập OKX API key/secret.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
+        } else {
+            Text("$instId · $bar · ${candles.size} nến xác nhận", color = TextSecondary, fontSize = 10.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            candles.asReversed().take(5).forEach { candle ->
+                Text(
+                    text = utcFormat.format(Date(candle.timestamp)),
+                    color = TextMuted,
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "O ${priceFormat.format(candle.open)}   H ${priceFormat.format(candle.high)}   L ${priceFormat.format(candle.low)}   C ${priceFormat.format(candle.close)}",
+                    color = TextPrimary,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.height(5.dp))
             }
         }
     }

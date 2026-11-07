@@ -149,7 +149,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun autoCalibrate() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isCalibrating = true, metrics = null, userNotice = "Đang tải nến công khai từ OKX để backtest...") }
+            _uiState.update { it.copy(isCalibrating = true, metrics = null, liveCandles = emptyList(), userNotice = "Đang tải nến công khai từ OKX để backtest...") }
             try {
                 val state = _uiState.value
                 val response = NetworkClients.okxService.getHistoryCandles(
@@ -159,6 +159,12 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                 )
                 if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
                 val candles = response.data.mapNotNull { parseOkxCandle(it) }.filter { it.confirm }.distinctBy { it.timestamp }.sortedBy { it.timestamp }
+                val latestState = _uiState.value
+                if (latestState.instId != state.instId || latestState.bar != state.bar || latestState.tpPercentStr != state.tpPercentStr || latestState.slPercentStr != state.slPercentStr) {
+                    _uiState.update { it.copy(isCalibrating = false, userNotice = "Cấu hình đã thay đổi trong lúc tải; kết quả cũ bị bỏ qua. Hãy chạy lại.") }
+                    return@launch
+                }
+                _uiState.update { it.copy(liveCandles = candles) }
 
                 if (candles.size < 50) {
                     _uiState.update {
