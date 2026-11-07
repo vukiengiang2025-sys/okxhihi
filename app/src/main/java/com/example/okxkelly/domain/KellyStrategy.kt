@@ -8,7 +8,17 @@ import kotlin.math.max
 
 object KellyStrategy {
 
+    fun hasCandleGap(previousTimestamp: Long, candles: List<Candle>, expectedIntervalMillis: Long): Boolean {
+        require(previousTimestamp > 0L) { "Previous candle timestamp must be positive" }
+        require(expectedIntervalMillis > 0L) { "Expected interval must be positive" }
+        val timestamps = candles.map { it.timestamp }.distinct().sorted()
+        if (timestamps.isEmpty()) return false
+        if (timestamps.first() - previousTimestamp > expectedIntervalMillis) return true
+        return timestamps.zipWithNext().any { (previous, current) -> current - previous > expectedIntervalMillis }
+    }
+
     fun calculateRSI(candles: List<Candle>, periods: Int = 14): DoubleArray {
+        require(periods > 0) { "RSI periods must be positive" }
         val rsi = DoubleArray(candles.size) { 0.0 }
         if (candles.size < periods + 1) return rsi
 

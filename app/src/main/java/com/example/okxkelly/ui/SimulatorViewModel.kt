@@ -16,6 +16,7 @@ import com.example.okxkelly.data.model.GeminiRequest
 import com.example.okxkelly.data.model.SimMetrics
 import com.example.okxkelly.data.model.Trade
 import com.example.okxkelly.domain.KellyStrategy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +89,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
 
     private var simulationJob: Job? = null
     private var tradeCount = 0
+    private var consecutiveApiFailures = 0
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     private fun invalidateCalibration(transform: (SimulatorUiState) -> SimulatorUiState) {
@@ -95,21 +97,15 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun updateInstId(newInstId: String) = invalidateCalibration { it.copy(instId = newInstId.trim()) }
 
-    fun updateBar(newBar: String) {
-        if (!_uiState.value.isRunning) _uiState.update { it.copy(bar = newBar) }
-    }
+    fun updateBar(newBar: String) = invalidateCalibration { it.copy(bar = newBar) }
 
     fun updateStartCapital(value: Double) {
         if (!_uiState.value.isRunning) _uiState.update { it.copy(startCapital = value, currentCapital = value) }
     }
 
-    fun updateTpPercent(value: String) {
-        if (!_uiState.value.isRunning) _uiState.update { it.copy(tpPercentStr = value) }
-    }
+    fun updateTpPercent(value: String) = invalidateCalibration { it.copy(tpPercentStr = value) }
 
-    fun updateSlPercent(value: String) {
-        if (!_uiState.value.isRunning) _uiState.update { it.copy(slPercentStr = value) }
-    }
+    fun updateSlPercent(value: String) = invalidateCalibration { it.copy(slPercentStr = value) }
 
     fun updateKellyMultiplier(value: Double) {
         if (value.isFinite() && value in 0.0..1.0 && !_uiState.value.isRunning) _uiState.update { it.copy(kellyMultiplier = value) }
@@ -188,7 +184,10 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(
                         isCalibrating = false,
                         metrics = metrics,
-                        userNotice = "Đã hiệu chuẩn chiến lược: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%"
+                        userNotice = buildString {
+                            append("Đã hiệu chuẩn từ ${metrics.totalTrades} lệnh đóng: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%.")
+                            if (metrics.totalTrades < 30) append(" Mẫu dưới 30 lệnh nên ước lượng Kelly rất nhiễu; chỉ xem là tham khảo.")
+                        }
                     )
                 }
             } catch (e: Exception) {
@@ -218,7 +217,13 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
+        val expectedIntervalMillis = barIntervalMillis(state.bar)
+        if (expectedIntervalMillis == null) {
+            _uiState.update { it.copy(userNotice = "Khung nến không được hỗ trợ; vui lòng chọn 1m, 5m, 15m hoặc 1H.") }
+            return
+        }
         tradeCount = 0
+        consecutiveApiFailures = 0
         lastProcessedCandleTimestamp = Long.MIN_VALUE
         val initialPoints = listOf(
             CapitalPoint(time = timeFormat.format(Date()), capital = state.startCapital)
@@ -250,25 +255,49 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(isRunning = false, userNotice = "Đã dừng giả lập.") }
     }
 
+    private fun barIntervalMillis(bar: String): Long? = when (bar) {
+        "1m" -> 60_000L
+        "5m" -> 5 * 60_000L
+        "15m" -> 15 * 60_000L
+        "1H" -> 60 * 60_000L
+        else -> null
+    }
+
     private suspend fun processTick() {
         val state = _uiState.value
         try {
+            val interval = barIntervalMillis(state.bar) ?: error("Unsupported candle interval")
             val response = NetworkClients.okxService.getCandles(state.instId, state.bar, limit = 50)
             if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
-            val candles = response.data.mapNotNull { parseOkxCandle(it) }.distinctBy { it.timestamp }.sortedBy { it.timestamp }.filter { it.confirm }
-            if (candles.size < 15) return
-            val candle = candles.last()
+            val candles = response.data.mapNotNull { parseOkxCandle(it) }
+                .filter { it.confirm }
+                .distinctBy { it.timestamp }
+                .sortedBy { it.timestamp }
+            if (candles.size < 16) error("Không đủ nến đã xác nhận để tính RSI")
+            consecutiveApiFailures = 0
+
             if (lastProcessedCandleTimestamp == Long.MIN_VALUE) {
-                // Establish a live baseline first; never open a position retroactively on a pre-start candle.
-                lastProcessedCandleTimestamp = candle.timestamp
+                // Start from a live baseline; never create a position from history before the session.
+                lastProcessedCandleTimestamp = candles.last().timestamp
                 _uiState.update { it.copy(liveCandles = candles) }
                 return
             }
-            if (candle.timestamp <= lastProcessedCandleTimestamp) return
-            lastProcessedCandleTimestamp = candle.timestamp
+
+            val pendingCandles = candles.filter { it.timestamp > lastProcessedCandleTimestamp }
+            if (pendingCandles.isEmpty()) return
+            if (KellyStrategy.hasCandleGap(lastProcessedCandleTimestamp, pendingCandles, interval)) {
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        liveCandles = candles,
+                        userNotice = "Đã dừng giả lập an toàn: phát hiện thiếu nến dữ liệu. Hãy hiệu chuẩn và bắt đầu phiên mới."
+                    )
+                }
+                simulationJob?.cancel()
+                return
+            }
+
             val rsi = KellyStrategy.calculateRSI(candles, 14)
-            val currentRsi = rsi.last()
-            val previousRsi = rsi[rsi.size - 2]
             val tp = (state.tpPercentStr.toDoubleOrNull() ?: return) / 100.0
             val sl = (state.slPercentStr.toDoubleOrNull() ?: return) / 100.0
             val metrics = state.metrics ?: return
@@ -277,34 +306,67 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             val completedTrades = state.liveTrades.toMutableList()
             val history = state.capitalHistory.toMutableList()
             var shouldStop = false
-            if (openTrade != null) {
-                val best = (candle.high - openTrade.entryPrice) / openTrade.entryPrice
-                val worst = (candle.low - openTrade.entryPrice) / openTrade.entryPrice
-                val won = worst > -sl && best >= tp
-                if (worst <= -sl || best >= tp) {
-                    val realizedRatio = if (won) tp else -sl
-                    val exit = openTrade.entryPrice * (1.0 + realizedRatio)
-                    val riskBudget = capital * metrics.kellyFraction * state.kellyMultiplier
-                    val pnl = if (won) riskBudget * (tp / sl) else -riskBudget
-                    capital = (capital + pnl).coerceAtLeast(0.0)
-                    tradeCount++
-                    completedTrades.add(0, openTrade.copy(exitPrice = exit, profitRatio = realizedRatio, won = won, exitTime = candle.timestamp))
-                    history.add(CapitalPoint(time = timeFormat.format(Date()), capital = capital))
-                    openTrade = null
-                    if (state.simMode == "single" || (state.simMode == "limited" && tradeCount >= state.maxTrades) || capital <= 0.0) shouldStop = true
+
+            for (candle in pendingCandles) {
+                val index = candles.indexOfFirst { it.timestamp == candle.timestamp }
+                var closedThisCandle = false
+                if (openTrade != null) {
+                    val best = (candle.high - openTrade.entryPrice) / openTrade.entryPrice
+                    val worst = (candle.low - openTrade.entryPrice) / openTrade.entryPrice
+                    // If TP and SL are both touched within one candle, assume the adverse stop first.
+                    val won = worst > -sl && best >= tp
+                    if (worst <= -sl || best >= tp) {
+                        val realizedRatio = if (won) tp else -sl
+                        val exit = openTrade.entryPrice * (1.0 + realizedRatio)
+                        val riskBudget = capital * metrics.kellyFraction * state.kellyMultiplier
+                        val pnl = if (won) riskBudget * (tp / sl) else -riskBudget
+                        capital = (capital + pnl).coerceAtLeast(0.0)
+                        tradeCount++
+                        completedTrades.add(0, openTrade.copy(exitPrice = exit, profitRatio = realizedRatio, won = won, exitTime = candle.timestamp))
+                        history.add(CapitalPoint(time = timeFormat.format(Date()), capital = capital))
+                        openTrade = null
+                        closedThisCandle = true
+                        if (state.simMode == "single" || (state.simMode == "limited" && tradeCount >= state.maxTrades) || capital <= 0.0) {
+                            shouldStop = true
+                        }
+                    }
                 }
-            } else if (previousRsi < 30.0 && currentRsi >= 30.0) {
-                openTrade = Trade(type = "BUY", entryPrice = candle.close, entryTime = candle.timestamp)
+                // Do not close and reopen at the same candle's close after an intrabar exit.
+                if (!shouldStop && openTrade == null && !closedThisCandle && index >= 15 && rsi[index - 1] < 30.0 && rsi[index] >= 30.0) {
+                    openTrade = Trade(type = "BUY", entryPrice = candle.close, entryTime = candle.timestamp)
+                }
+                lastProcessedCandleTimestamp = candle.timestamp
+                if (shouldStop) break
             }
+
             _uiState.update {
-                it.copy(liveCandles = candles, openTrade = openTrade, currentCapital = capital,
-                    capitalHistory = history, liveTrades = completedTrades,
+                it.copy(
+                    liveCandles = candles,
+                    openTrade = openTrade,
+                    currentCapital = capital,
+                    capitalHistory = history,
+                    liveTrades = completedTrades,
                     isRunning = if (shouldStop) false else it.isRunning,
-                    userNotice = if (shouldStop) "Đã hoàn thành phiên giả lập ($tradeCount lệnh)." else it.userNotice)
+                    userNotice = if (shouldStop) "Đã hoàn thành phiên giả lập ($tradeCount lệnh)." else it.userNotice
+                )
             }
             if (shouldStop) simulationJob?.cancel()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            _uiState.update { it.copy(userNotice = "Lỗi lấy dữ liệu thị trường: ${e.localizedMessage ?: "thử lại sau"}") }
+            consecutiveApiFailures++
+            val stopAfterRepeatedFailures = consecutiveApiFailures >= 5
+            _uiState.update {
+                it.copy(
+                    isRunning = if (stopAfterRepeatedFailures) false else it.isRunning,
+                    userNotice = if (stopAfterRepeatedFailures) {
+                        "Đã dừng giả lập sau 5 lỗi dữ liệu liên tiếp: ${e.localizedMessage ?: "hãy kiểm tra kết nối"}"
+                    } else {
+                        "Lỗi dữ liệu thị trường ($consecutiveApiFailures/5); đang thử lại: ${e.localizedMessage ?: "thử lại sau"}"
+                    }
+                )
+            }
+            if (stopAfterRepeatedFailures) simulationJob?.cancel()
         }
     }
     fun runAIAnalysis() {

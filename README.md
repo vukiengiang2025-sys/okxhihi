@@ -11,7 +11,7 @@
 
 ## Giới hạn quan trọng
 
-Backtest hiện chưa mô hình hóa phí, spread, slippage, funding, thanh khoản, gap-fill hay độ trễ thực thi. Dữ liệu nến OHLC không cho biết thứ tự giá intrabar; trường hợp TP/SL cùng bị chạm được tính theo hướng bất lợi. Kelly nhạy với sai số ước lượng, vì vậy không dùng kết quả mô phỏng làm cam kết lợi nhuận hoặc căn cứ duy nhất để giao dịch.
+Backtest hiện chưa mô hình hóa phí, spread, slippage, funding, thanh khoản, gap-fill hay độ trễ thực thi. Dữ liệu nến OHLC không cho biết thứ tự giá intrabar; trường hợp TP/SL cùng bị chạm được tính theo hướng bất lợi. Kelly nhạy với sai số ước lượng, vì vậy không dùng kết quả mô phỏng làm cam kết lợi nhuận hoặc căn cứ duy nhất để giao dịch. Nếu mẫu backtest có dưới 30 lệnh đóng, ứng dụng hiển thị cảnh báo ước lượng Kelly có độ bất định cao. Khi forward simulation phát hiện thiếu một hoặc nhiều nến liên tiếp, phiên sẽ dừng thay vì giả định rằng các mức TP/SL không bị chạm; sau 5 lỗi lấy dữ liệu liên tiếp phiên cũng tự dừng.
 
 ## Build cục bộ
 

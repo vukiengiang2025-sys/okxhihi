@@ -34,6 +34,15 @@ class KellyStrategyTest {
         assertEquals(0.0, metrics.kellyFraction, 0.0)
     }
 
+    @Test fun candleGapDetectionAllowsContiguousDataAndFlagsMissingBars() {
+        val bars = listOf(candle(2, 100.0), candle(3, 101.0))
+        assertTrue(!KellyStrategy.hasCandleGap(60_000L, bars, 60_000L))
+        assertTrue(KellyStrategy.hasCandleGap(0L + 60_000L, listOf(candle(3, 101.0), candle(5, 102.0)), 60_000L))
+    }
+
+    @Test(expected = IllegalArgumentException::class) fun rejectsNonPositiveRsiPeriod() {
+        KellyStrategy.calculateRSI(emptyList(), periods = 0)
+    }
     @Test(expected = IllegalArgumentException::class) fun rejectsInvalidRiskParameters() {
         KellyStrategy.backtestStrategy(emptyList(), tpPercent = -0.1, slPercent = 0.01)
     }
