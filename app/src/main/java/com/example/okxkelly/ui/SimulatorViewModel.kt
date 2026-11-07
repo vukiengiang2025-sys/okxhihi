@@ -149,7 +149,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun autoCalibrate() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isCalibrating = true, userNotice = null) }
+            _uiState.update { it.copy(isCalibrating = true, metrics = null, userNotice = "Đang tải nến công khai từ OKX để backtest...") }
             try {
                 val state = _uiState.value
                 val response = NetworkClients.okxService.getHistoryCandles(
@@ -185,11 +185,17 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                         isCalibrating = false,
                         metrics = metrics,
                         userNotice = buildString {
-                            append("Đã hiệu chuẩn từ ${metrics.totalTrades} lệnh đóng: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%.")
-                            if (metrics.totalTrades < 30) append(" Mẫu dưới 30 lệnh nên ước lượng Kelly rất nhiễu; chỉ xem là tham khảo.")
+                            if (metrics.totalTrades == 0) {
+                                append("Backtest hoàn tất nhưng 100 nến gần nhất không tạo lệnh đóng nào; Kelly=0 nên không thể chạy mô phỏng. Hãy thử khung thời gian khác hoặc chạy lại sau.")
+                            } else {
+                                append("Backtest hoàn tất từ ${metrics.totalTrades} lệnh đóng: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%.")
+                                if (metrics.totalTrades < 30) append(" Mẫu dưới 30 lệnh nên ước lượng Kelly rất nhiễu; chỉ xem là tham khảo.")
+                            }
                         }
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(

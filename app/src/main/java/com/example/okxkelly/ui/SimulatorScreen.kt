@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
@@ -394,7 +395,7 @@ private fun HeaderSection(
                         tint = LimeAccent
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Đánh giá (Backtest)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Backtest OKX", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -489,22 +490,23 @@ private fun ParametersCard(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Box(modifier = Modifier.weight(0.8f)) {
-                OutlinedTextField(
-                    value = state.bar,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Khung", fontSize = 11.sp) },
+                OutlinedButton(
+                    onClick = { expandedBar = true },
                     enabled = !state.isRunning,
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = !state.isRunning) { expandedBar = true },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = LimeAccent,
-                        unfocusedBorderColor = BorderDark,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    )
-                )
+                        .height(56.dp)
+                        .testTag("bar_dropdown_button")
+                ) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                        Text("KHUNG NẾN", color = TextSecondary, fontSize = 9.sp)
+                        Text(state.bar, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Chọn khung nến", tint = LimeAccent)
+                }
                 DropdownMenu(
                     expanded = expandedBar,
                     onDismissRequest = { expandedBar = false },
@@ -512,6 +514,7 @@ private fun ParametersCard(
                 ) {
                     listOf("1m", "5m", "15m", "1H").forEach { b ->
                         DropdownMenuItem(
+                            modifier = Modifier.testTag("bar_option_$b"),
                             text = { Text(b, color = TextPrimary) },
                             onClick = {
                                 onBarChange(b)
@@ -712,7 +715,12 @@ private fun KellyMetricsRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = "WIN RATE", color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = metrics?.let { "WIN RATE · ${it.totalTrades} lệnh" } ?: "WIN RATE · -- lệnh",
+                color = TextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = if (metrics != null) String.format(Locale.US, "%.1f%%", metrics.winRate * 100) else "--",
@@ -854,7 +862,7 @@ private fun AiEvaluationTabContent(
 
             Button(
                 onClick = onRunAnalysis,
-                enabled = !isAnalyzing && hasTrades,
+                enabled = !isAnalyzing,
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = LimeAccent,
@@ -876,6 +884,15 @@ private fun AiEvaluationTabContent(
             }
         }
 
+        if (!hasTrades && !isAnalyzing) {
+            Text(
+                text = "Gemini chỉ phân tích các lệnh đã đóng. Hãy backtest, bắt đầu mô phỏng và chờ có ít nhất 1 lệnh đóng; Gemini key không cần cho backtest OKX.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         Spacer(modifier = Modifier.height(14.dp))
         HorizontalDivider(color = BorderDark)
         Spacer(modifier = Modifier.height(14.dp))
@@ -888,7 +905,7 @@ private fun AiEvaluationTabContent(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Khởi chạy giả lập để có dữ liệu giao dịch, sau đó nhấn 'Phân tích Kết quả' để nhận đánh giá định lượng chuyên sâu từ Gemini AI.",
+                    text = if (hasTrades) "Nhấn 'Phân tích Kết quả' để Gemini nhận xét các giao dịch đã đóng." else "Chưa có giao dịch đã đóng. Backtest OKX không cần API key; Gemini chỉ chạy sau khi có kết quả mô phỏng.",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,

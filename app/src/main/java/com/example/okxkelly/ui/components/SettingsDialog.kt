@@ -108,6 +108,13 @@ fun SettingsDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
+                    text = "Dữ liệu nến/backtest dùng API công khai OKX, không cần nhập khóa. Khóa OKX không được dùng để gửi lệnh. Gemini key chỉ cần cho AI nhận xét.",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
                     text = "OKX API KEY (TÙY CHỌN)",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
