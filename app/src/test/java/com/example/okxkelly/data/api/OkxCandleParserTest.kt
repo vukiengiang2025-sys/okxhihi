@@ -18,6 +18,15 @@ class OkxCandleParserTest {
         assertTrue(candle.confirm)
     }
 
+    @Test fun parsesDecimalPricePrecisionAndRejectsInvalidVolume() {
+        val candle = parseOkxCandle(listOf("1730000000000", "0.00101", "0.00115", "0.00098", "0.00110", "0.50", "0.49", "0.00055", "1"))
+        requireNotNull(candle)
+        assertEquals(0.00101, candle.open, 0.0000000001)
+        assertEquals(0.00115, candle.high, 0.0000000001)
+        assertEquals(0.50, candle.vol, 0.0)
+        assertNull(parseOkxCandle(listOf("1730000000000", "0.00101", "0.00115", "0.00098", "0.00110", "bad", "0.49", "0.00055", "1")))
+    }
+
     @Test fun rejectsMalformedRowsAndKeepsUnconfirmedFlag() {
         assertNull(parseOkxCandle(listOf("1", "2", "3")))
         assertNull(parseOkxCandle(listOf("1730000000000", "67000", "66000", "66900", "67100", "0", "0", "0", "1")))

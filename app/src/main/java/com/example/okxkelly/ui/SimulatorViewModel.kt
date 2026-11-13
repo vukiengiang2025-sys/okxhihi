@@ -5,7 +5,6 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.okxkelly.BuildConfig
 import com.example.okxkelly.data.api.NetworkClients
 import com.example.okxkelly.data.api.parseOkxCandle
 import com.example.okxkelly.data.model.Candle
@@ -29,6 +28,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private const val MAX_RECENT_TRADES = 500
+private const val MAX_EQUITY_POINTS = 2_000
+
 data class SimulatorUiState(
     val instId: String = "BTC-USDT",
     val bar: String = "1m",
@@ -43,6 +45,9 @@ data class SimulatorUiState(
     val currentCapital: Double = 1000.0,
     val capitalHistory: List<CapitalPoint> = emptyList(),
     val liveTrades: List<Trade> = emptyList(),
+    val totalClosedTrades: Int = 0,
+    val totalWins: Int = 0,
+    val totalLosses: Int = 0,
     val openTrade: Trade? = null,
     val liveCandles: List<Candle> = emptyList(),
     val isCalibrating: Boolean = false,
@@ -50,9 +55,6 @@ data class SimulatorUiState(
     val aiAnalysis: String? = null,
     val userNotice: String? = null,
     val showSettings: Boolean = false,
-    val okxApiKey: String = "",
-    val okxSecret: String = "",
-    val okxPassphrase: String = "",
     val geminiApiKey: String = ""
 )
 
@@ -68,26 +70,28 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     private var lastProcessedCandleTimestamp = Long.MIN_VALUE
     init {
         val legacyPrefs = application.getSharedPreferences("okx_kelly_prefs", android.content.Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        listOf("okx_api_key", "okx_api_secret", "okx_api_passphrase", "gemini_api_key").forEach { key ->
-            val value = legacyPrefs.getString(key, null)
-            if (!value.isNullOrBlank() && prefs.getString(key, null).isNullOrBlank()) editor.putString(key, value)
+        val legacyGeminiKey = legacyPrefs.getString("gemini_api_key", null)
+        val existingGeminiKey = prefs.getString("gemini_api_key", null)
+        var migrationSucceeded = true
+        if (!legacyGeminiKey.isNullOrBlank() && existingGeminiKey.isNullOrBlank()) {
+            migrationSucceeded = prefs.edit().putString("gemini_api_key", legacyGeminiKey).commit()
         }
-        editor.apply()
-        legacyPrefs.edit().clear().apply()
+        // Retire unused OKX credentials and clear legacy storage only after Gemini migration succeeds.
+        prefs.edit()
+            .remove("okx_api_key")
+            .remove("okx_api_secret")
+            .remove("okx_api_passphrase")
+            .commit()
+        if (migrationSucceeded) legacyPrefs.edit().clear().commit()
     }
-
     private val _uiState = MutableStateFlow(
-        SimulatorUiState(
-            okxApiKey = prefs.getString("okx_api_key", "") ?: "",
-            okxSecret = prefs.getString("okx_api_secret", "") ?: "",
-            okxPassphrase = prefs.getString("okx_api_passphrase", "") ?: "",
-            geminiApiKey = prefs.getString("gemini_api_key", "") ?: ""
-        )
+        SimulatorUiState(geminiApiKey = prefs.getString("gemini_api_key", "") ?: "")
     )
     val uiState: StateFlow<SimulatorUiState> = _uiState.asStateFlow()
 
     private var simulationJob: Job? = null
+    private var calibrationJob: Job? = null
+    private var analysisJob: Job? = null
     private var tradeCount = 0
     private var consecutiveApiFailures = 0
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -127,28 +131,19 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(userNotice = null) }
     }
 
-    fun saveSettings(okxKey: String, okxSec: String, okxPass: String, geminiKey: String) {
-        prefs.edit()
-            .putString("okx_api_key", okxKey)
-            .putString("okx_api_secret", okxSec)
-            .putString("okx_api_passphrase", okxPass)
-            .putString("gemini_api_key", geminiKey)
-            .apply()
-
+    fun saveSettings(geminiKey: String) {
+        prefs.edit().putString("gemini_api_key", geminiKey.trim()).apply()
         _uiState.update {
             it.copy(
-                okxApiKey = okxKey,
-                okxSecret = okxSec,
-                okxPassphrase = okxPass,
-                geminiApiKey = geminiKey,
+                geminiApiKey = geminiKey.trim(),
                 showSettings = false,
-                userNotice = "Đã lưu cài đặt API thành công"
+                userNotice = "Đã lưu khóa Gemini trên thiết bị. Khóa dùng cho Gemini AI, không cần cho dữ liệu OKX."
             )
         }
     }
-
     fun autoCalibrate() {
-        viewModelScope.launch {
+        if (_uiState.value.isRunning || _uiState.value.isCalibrating) return
+        calibrationJob = viewModelScope.launch {
             _uiState.update { it.copy(isCalibrating = true, metrics = null, liveCandles = emptyList(), userNotice = "Đang tải nến công khai từ OKX để backtest...") }
             try {
                 val state = _uiState.value
@@ -158,7 +153,9 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     limit = 100
                 )
                 if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
-                val candles = response.data.mapNotNull { parseOkxCandle(it) }.filter { it.confirm }.distinctBy { it.timestamp }.sortedBy { it.timestamp }
+                val candles = KellyStrategy.normalizeCandles(
+                    response.data.mapNotNull { parseOkxCandle(it) }.filter { it.confirm }
+                )
                 val latestState = _uiState.value
                 if (latestState.instId != state.instId || latestState.bar != state.bar || latestState.tpPercentStr != state.tpPercentStr || latestState.slPercentStr != state.slPercentStr) {
                     _uiState.update { it.copy(isCalibrating = false, userNotice = "Cấu hình đã thay đổi trong lúc tải; kết quả cũ bị bỏ qua. Hãy chạy lại.") }
@@ -180,7 +177,9 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     ?: error("Take profit phải nằm trong khoảng 0,01%–50%")
                 val slPct = state.slPercentStr.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.01..50.0 }
                     ?: error("Stop loss phải nằm trong khoảng 0,01%–50%")
-                val metrics = KellyStrategy.backtestStrategy(candles, tpPct / 100.0, slPct / 100.0)
+                val expectedInterval = barIntervalMillis(state.bar) ?: error("Khung nến không hợp lệ")
+                val backtest = KellyStrategy.backtestDetailed(candles, tpPct / 100.0, slPct / 100.0, expectedInterval)
+                val metrics = backtest.metrics
                 val current = _uiState.value
                 if (current.instId != state.instId || current.bar != state.bar || current.tpPercentStr != state.tpPercentStr || current.slPercentStr != state.slPercentStr) {
                     _uiState.update { it.copy(isCalibrating = false, metrics = null, userNotice = "Thông số đã đổi trong lúc hiệu chuẩn; hãy chạy lại.") }
@@ -196,6 +195,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                             } else {
                                 append("Backtest hoàn tất từ ${metrics.totalTrades} lệnh đóng: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%.")
                                 if (metrics.totalTrades < 30) append(" Mẫu dưới 30 lệnh nên ước lượng Kelly rất nhiễu; chỉ xem là tham khảo.")
+                                if (backtest.openTrade != null) append(" Còn 1 lệnh chưa đóng ở cuối mẫu; lệnh này không nằm trong Kelly.")
                             }
                         }
                     )
@@ -206,23 +206,30 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                 _uiState.update {
                     it.copy(
                         isCalibrating = false,
-                        userNotice = "Lỗi khi lấy dữ liệu OKX: ${e.localizedMessage ?: "Unknown error"}"
+                        userNotice = "Backtest thất bại: ${e.localizedMessage ?: "không thể lấy hoặc xác thực dữ liệu OKX"}"
                     )
                 }
+            } finally {
+                _uiState.update { if (it.isCalibrating) it.copy(isCalibrating = false) else it }
             }
         }
     }
 
     fun startSimulation() {
         val state = _uiState.value
+        if (state.isRunning) return
+        if (state.isCalibrating) {
+            _uiState.update { it.copy(userNotice = "Đợi backtest tải và kiểm tra dữ liệu xong trước khi bắt đầu mô phỏng.") }
+            return
+        }
         val metrics = state.metrics
         val tpPct = state.tpPercentStr.toDoubleOrNull()
         val slPct = state.slPercentStr.toDoubleOrNull()
-        if (state.startCapital <= 0.0 || !state.startCapital.isFinite() || tpPct == null || tpPct !in 0.01..50.0 || slPct == null || slPct !in 0.01..50.0 || state.kellyMultiplier <= 0.0 || state.kellyMultiplier > 1.0) {
+        if (state.startCapital <= 0.0 || !state.startCapital.isFinite() || tpPct == null || tpPct !in 0.01..50.0 || slPct == null || slPct !in 0.01..50.0 || !state.kellyMultiplier.isFinite() || state.kellyMultiplier <= 0.0 || state.kellyMultiplier > 1.0) {
             _uiState.update { it.copy(userNotice = "Vui lòng kiểm tra vốn, TP/SL (0,01%–50%) và hệ số Kelly trước khi chạy.") }
             return
         }
-        if (metrics == null || metrics.kellyFraction <= 0.0) {
+        if (metrics == null || !metrics.kellyFraction.isFinite() || metrics.kellyFraction !in 0.0000001..1.0) {
             _uiState.update {
                 it.copy(userNotice = "Vui lòng Đánh giá chiến lược và đảm bảo Kelly > 0 trước khi chạy giả lập.")
             }
@@ -247,6 +254,9 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                 currentCapital = state.startCapital,
                 capitalHistory = initialPoints,
                 liveTrades = emptyList(),
+                totalClosedTrades = 0,
+                totalWins = 0,
+                totalLosses = 0,
                 openTrade = null,
                 userNotice = "Đang chạy giả lập với dữ liệu thị trường trực tiếp từ OKX..."
             )
@@ -281,10 +291,9 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             val interval = barIntervalMillis(state.bar) ?: error("Unsupported candle interval")
             val response = NetworkClients.okxService.getCandles(state.instId, state.bar, limit = 50)
             if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
-            val candles = response.data.mapNotNull { parseOkxCandle(it) }
-                .filter { it.confirm }
-                .distinctBy { it.timestamp }
-                .sortedBy { it.timestamp }
+            val candles = KellyStrategy.normalizeCandles(
+                response.data.mapNotNull { parseOkxCandle(it) }.filter { it.confirm }
+            )
             if (candles.size < 16) error("Không đủ nến đã xác nhận để tính RSI")
             consecutiveApiFailures = 0
 
@@ -313,39 +322,51 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             val tp = (state.tpPercentStr.toDoubleOrNull() ?: return) / 100.0
             val sl = (state.slPercentStr.toDoubleOrNull() ?: return) / 100.0
             val metrics = state.metrics ?: return
+            if (!metrics.kellyFraction.isFinite() || metrics.kellyFraction !in 0.0000001..1.0) error("Kelly fraction is invalid")
             var openTrade = state.openTrade
             var capital = state.currentCapital
             val completedTrades = state.liveTrades.toMutableList()
             val history = state.capitalHistory.toMutableList()
+            var totalClosedTrades = state.totalClosedTrades
+            var totalWins = state.totalWins
+            var totalLosses = state.totalLosses
             var shouldStop = false
+            var arithmeticStopNotice: String? = null
 
             for (candle in pendingCandles) {
                 val index = candles.indexOfFirst { it.timestamp == candle.timestamp }
-                var closedThisCandle = false
-                if (openTrade != null) {
-                    val best = (candle.high - openTrade.entryPrice) / openTrade.entryPrice
-                    val worst = (candle.low - openTrade.entryPrice) / openTrade.entryPrice
-                    // If TP and SL are both touched within one candle, assume the adverse stop first.
-                    val won = worst > -sl && best >= tp
-                    if (worst <= -sl || best >= tp) {
-                        val realizedRatio = if (won) tp else -sl
-                        val exit = openTrade.entryPrice * (1.0 + realizedRatio)
+                // A crossover is known at the previous candle close, so fill at this candle's open.
+                // A position opened here is then exposed to this candle's full high/low range.
+                if (openTrade == null && index >= KellyStrategy.MIN_ENTRY_INDEX && KellyStrategy.crossedAboveOversold(rsi, index - 1)) {
+                    openTrade = Trade(type = "BUY", entryPrice = candle.open, entryTime = candle.timestamp)
+                }
+                val activeTrade = openTrade
+                if (activeTrade != null) {
+                    val realizedRatio = KellyStrategy.exitRatioOnCandle(activeTrade.entryPrice, candle, tp, sl)
+                    if (realizedRatio != null) {
+                        val won = realizedRatio > 0.0
+                        val exit = activeTrade.entryPrice * (1.0 + realizedRatio)
                         val riskBudget = capital * metrics.kellyFraction * state.kellyMultiplier
                         val pnl = if (won) riskBudget * (tp / sl) else -riskBudget
-                        capital = (capital + pnl).coerceAtLeast(0.0)
+                        val nextCapital = capital + pnl
+                        if (!riskBudget.isFinite() || riskBudget <= 0.0 || !pnl.isFinite() || !nextCapital.isFinite()) {
+                            shouldStop = true
+                            arithmeticStopNotice = "Dừng an toàn: phép tính vốn vượt phạm vi số hợp lệ."
+                            break
+                        }
+                        capital = nextCapital.coerceAtLeast(0.0)
                         tradeCount++
-                        completedTrades.add(0, openTrade.copy(exitPrice = exit, profitRatio = realizedRatio, won = won, exitTime = candle.timestamp))
+                        completedTrades.add(0, activeTrade.copy(exitPrice = exit, profitRatio = realizedRatio, won = won, exitTime = candle.timestamp))
+                        if (completedTrades.size > MAX_RECENT_TRADES) completedTrades.removeAt(completedTrades.lastIndex)
+                        totalClosedTrades++
+                        if (won) totalWins++ else totalLosses++
                         history.add(CapitalPoint(time = timeFormat.format(Date()), capital = capital))
+                        if (history.size > MAX_EQUITY_POINTS) history.removeAt(0)
                         openTrade = null
-                        closedThisCandle = true
                         if (state.simMode == "single" || (state.simMode == "limited" && tradeCount >= state.maxTrades) || capital <= 0.0) {
                             shouldStop = true
                         }
                     }
-                }
-                // Do not close and reopen at the same candle's close after an intrabar exit.
-                if (!shouldStop && openTrade == null && !closedThisCandle && index >= 15 && rsi[index - 1] < 30.0 && rsi[index] >= 30.0) {
-                    openTrade = Trade(type = "BUY", entryPrice = candle.close, entryTime = candle.timestamp)
                 }
                 lastProcessedCandleTimestamp = candle.timestamp
                 if (shouldStop) break
@@ -358,8 +379,11 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     currentCapital = capital,
                     capitalHistory = history,
                     liveTrades = completedTrades,
+                    totalClosedTrades = totalClosedTrades,
+                    totalWins = totalWins,
+                    totalLosses = totalLosses,
                     isRunning = if (shouldStop) false else it.isRunning,
-                    userNotice = if (shouldStop) "Đã hoàn thành phiên giả lập ($tradeCount lệnh)." else it.userNotice
+                    userNotice = arithmeticStopNotice ?: if (shouldStop) "Đã hoàn thành phiên giả lập ($tradeCount lệnh)." else it.userNotice
                 )
             }
             if (shouldStop) simulationJob?.cancel()
@@ -383,13 +407,9 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun runAIAnalysis() {
         val state = _uiState.value
-        val effectiveGeminiKey = if (state.geminiApiKey.isNotBlank()) {
-            state.geminiApiKey
-        } else {
-            BuildConfig.GEMINI_API_KEY
-        }
+        val effectiveGeminiKey = state.geminiApiKey.trim()
 
-        if (effectiveGeminiKey.isBlank() || effectiveGeminiKey == "your_api_key_here") {
+        if (effectiveGeminiKey.isBlank()) {
             _uiState.update {
                 it.copy(
                     showSettings = true,
@@ -406,12 +426,13 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        viewModelScope.launch {
+        if (_uiState.value.isAnalyzing) return
+        analysisJob = viewModelScope.launch {
             _uiState.update { it.copy(isAnalyzing = true, aiAnalysis = null, userNotice = null) }
             try {
-                val totalTrades = state.liveTrades.size
-                val wins = state.liveTrades.count { it.won == true }
-                val losses = totalTrades - wins
+                val totalTrades = state.totalClosedTrades
+                val wins = state.totalWins
+                val losses = state.totalLosses
                 val winRate = if (totalTrades > 0) (wins.toDouble() / totalTrades) * 100.0 else 0.0
 
                 val prompt = """
@@ -455,6 +476,8 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                         userNotice = "Đã phân tích xong kết quả từ Gemini AI"
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -462,6 +485,8 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                         userNotice = "Lỗi khi gọi Gemini AI: ${e.localizedMessage ?: "Unknown error"}"
                     )
                 }
+            } finally {
+                _uiState.update { if (it.isAnalyzing) it.copy(isAnalyzing = false) else it }
             }
         }
     }
@@ -469,5 +494,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         super.onCleared()
         simulationJob?.cancel()
+        calibrationJob?.cancel()
+        analysisJob?.cancel()
     }
 }

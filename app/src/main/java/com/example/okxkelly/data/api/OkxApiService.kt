@@ -32,15 +32,19 @@ fun parseOkxCandle(row: List<String>): Candle? {
         val close = row[4].toDoubleOrNull() ?: return null
         if (timestamp <= 0L || listOf(open, high, low, close).any { !it.isFinite() || it <= 0.0 }) return null
         if (high < maxOf(open, close, low) || low > minOf(open, close, high)) return null
+        val vol = row[5].toDoubleOrNull() ?: return null
+        val volCcy = row[6].toDoubleOrNull() ?: return null
+        val volCcyQuote = row[7].toDoubleOrNull() ?: return null
+        if (listOf(vol, volCcy, volCcyQuote).any { !it.isFinite() || it < 0.0 }) return null
         Candle(
             timestamp = timestamp,
             open = open,
             high = high,
             low = low,
             close = close,
-            vol = row[5].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
-            volCcy = row[6].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
-            volCcyQuote = row[7].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+            vol = vol,
+            volCcy = volCcy,
+            volCcyQuote = volCcyQuote,
             confirm = row[8] == "1"
         )
     } catch (_: Exception) {

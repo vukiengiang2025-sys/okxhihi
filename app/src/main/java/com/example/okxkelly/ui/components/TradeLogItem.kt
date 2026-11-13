@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +21,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.okxkelly.data.model.Trade
 import com.example.okxkelly.ui.theme.BorderDark
 import com.example.okxkelly.ui.theme.LossRed
@@ -96,7 +97,7 @@ fun TradeLogItem(
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .size(22.dp)
+                    .semantics(mergeDescendants = true) { contentDescription = if (isWon) "Thắng" else "Thua" }
                     .background(
                         if (isWon) WinGreen.copy(alpha = 0.2f) else LossRed.copy(alpha = 0.2f),
                         CircleShape
@@ -104,10 +105,11 @@ fun TradeLogItem(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isWon) "W" else "L",
+                    text = if (isWon) "Thắng" else "Thua",
                     color = if (isWon) WinGreen else LossRed,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
         }

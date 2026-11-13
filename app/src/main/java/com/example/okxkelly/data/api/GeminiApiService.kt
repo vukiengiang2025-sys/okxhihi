@@ -4,12 +4,12 @@ import com.example.okxkelly.data.model.GeminiRequest
 import com.example.okxkelly.data.model.GeminiResponse
 import retrofit2.http.Body
 import retrofit2.http.POST
-import retrofit2.http.Query
+import retrofit2.http.Header
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    @POST("v1beta/models/gemini-3.6-flash:generateContent")
     suspend fun generateContent(
-        @Query("key") apiKey: String,
+        @Header("x-goog-api-key") apiKey: String,
         @Body request: GeminiRequest
     ): GeminiResponse
 }

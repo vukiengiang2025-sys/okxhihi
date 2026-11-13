@@ -52,16 +52,10 @@ import com.example.okxkelly.ui.theme.TextSecondary
 
 @Composable
 fun SettingsDialog(
-    initialOkxApiKey: String,
-    initialOkxSecret: String,
-    initialOkxPassphrase: String,
     initialGeminiApiKey: String,
     onDismiss: () -> Unit,
-    onSave: (okxKey: String, okxSecret: String, okxPass: String, geminiKey: String) -> Unit
+    onSave: (geminiKey: String) -> Unit
 ) {
-    var okxKey by remember { mutableStateOf(initialOkxApiKey) }
-    var okxSecret by remember { mutableStateOf(initialOkxSecret) }
-    var okxPass by remember { mutableStateOf(initialOkxPassphrase) }
     var geminiKey by remember { mutableStateOf(initialGeminiApiKey) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -108,96 +102,13 @@ fun SettingsDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Dữ liệu nến/backtest dùng API công khai OKX, không cần nhập khóa. Khóa OKX không được dùng để gửi lệnh. Gemini key chỉ cần cho AI nhận xét.",
+                    text = "Nến/backtest lấy từ API công khai OKX, không cần API key hay secret OKX. Gemini chỉ dùng cho phần nhận xét AI.",
                     color = TextMuted,
                     fontSize = 11.sp
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "OKX API KEY (TÙY CHỌN)",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextSecondary,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = okxKey,
-                    onValueChange = { okxKey = it },
-                    placeholder = { Text("Public Market Data nếu để trống", color = TextMuted, fontSize = 12.sp) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = LimeAccent,
-                        unfocusedBorderColor = BorderDark,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = LimeAccent
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "OKX SECRET",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextSecondary,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = okxSecret,
-                            onValueChange = { okxSecret = it },
-                            placeholder = { Text("***", color = TextMuted, fontSize = 12.sp) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = LimeAccent,
-                                unfocusedBorderColor = BorderDark,
-                                focusedTextColor = TextPrimary,
-                                unfocusedTextColor = TextPrimary
-                            )
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "PASSPHRASE",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextSecondary,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = okxPass,
-                            onValueChange = { okxPass = it },
-                            placeholder = { Text("***", color = TextMuted, fontSize = 12.sp) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = LimeAccent,
-                                unfocusedBorderColor = BorderDark,
-                                focusedTextColor = TextPrimary,
-                                unfocusedTextColor = TextPrimary
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-                HorizontalDivider(color = BorderDark)
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Text(
-                    text = "GEMINI API KEY (DÀNH CHO AI EVALUATION)",
+                    text = "GEMINI API KEY RIÊNG (TÙY CHỌN)",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = LimeAccent,
@@ -207,7 +118,7 @@ fun SettingsDialog(
                 OutlinedTextField(
                     value = geminiKey,
                     onValueChange = { geminiKey = it },
-                    placeholder = { Text("Nhập key hoặc dùng BuildConfig", color = TextMuted, fontSize = 12.sp) },
+                    placeholder = { Text("Dán Gemini API key cá nhân", color = TextMuted, fontSize = 12.sp) },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -220,7 +131,14 @@ fun SettingsDialog(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Khóa lưu mã hóa trên thiết bị và gửi tới Google qua header HTTPS. Khi chạy AI, cặp/khung, vốn, lãi lỗ và thống kê lệnh được gửi tới Google. Ứng dụng Android không thể bảo vệ khóa hoàn toàn trước việc trích xuất; không dùng khóa tổ chức/sản xuất. Google khuyến nghị backend proxy cho ứng dụng phân phối.",
+                    color = TextMuted,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -236,7 +154,7 @@ fun SettingsDialog(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Button(
-                        onClick = { onSave(okxKey, okxSecret, okxPass, geminiKey) },
+                        onClick = { onSave(geminiKey) },
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = LimeAccent,

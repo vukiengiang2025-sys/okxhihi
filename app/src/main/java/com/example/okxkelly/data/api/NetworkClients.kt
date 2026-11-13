@@ -10,7 +10,6 @@ import java.util.concurrent.TimeUnit
 object NetworkClients {
     private val json = Json {
         ignoreUnknownKeys = true
-        isLenient = true
     }
 
     private val contentType = "application/json".toMediaType()

@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.okxkelly.data.model.CapitalPoint
 import com.example.okxkelly.ui.theme.BorderDark
 import com.example.okxkelly.ui.theme.LimeAccent
@@ -58,7 +60,7 @@ fun EquityChart(
             ) {
                 Column {
                     Text(
-                        text = "CURRENT SIMULATED EQUITY (A)",
+                        text = "VỐN MÔ PHỎNG HIỆN TẠI",
                         color = TextSecondary,
                         fontSize = 10.sp,
                         letterSpacing = 1.5.sp,
@@ -78,7 +80,7 @@ fun EquityChart(
                 val pnlPercent = if (startCapital > 0) (pnl / startCapital) * 100 else 0.0
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "PnL",
+                        text = "Lãi/lỗ",
                         color = TextMuted,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -103,7 +105,7 @@ fun EquityChart(
             ) {
                 if (history.size < 2) {
                     Text(
-                        text = "WAITING FOR SIMULATION DATA...",
+                        text = "Đang chờ dữ liệu mô phỏng…",
                         color = TextMuted,
                         fontSize = 11.sp,
                         letterSpacing = 2.sp,
@@ -111,7 +113,17 @@ fun EquityChart(
                     )
                 }
 
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(
+                    modifier = Modifier.fillMaxSize().semantics {
+                        val minimum = history.minOfOrNull { it.capital } ?: currentCapital
+                        val maximum = history.maxOfOrNull { it.capital } ?: currentCapital
+                        contentDescription = if (history.size < 2) {
+                            "Biểu đồ vốn mô phỏng chưa có đủ dữ liệu. Vốn hiện tại ${String.format(Locale.US, "%.2f", currentCapital)} đô la."
+                        } else {
+                            "Biểu đồ vốn mô phỏng có ${history.size} điểm. Thấp nhất ${String.format(Locale.US, "%.2f", minimum)} đô la, cao nhất ${String.format(Locale.US, "%.2f", maximum)} đô la, hiện tại ${String.format(Locale.US, "%.2f", currentCapital)} đô la."
+                        }
+                    }
+                ) {
                     val w = size.width
                     val h = size.height
 

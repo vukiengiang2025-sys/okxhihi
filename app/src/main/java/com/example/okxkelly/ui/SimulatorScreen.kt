@@ -63,6 +63,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -151,7 +155,7 @@ fun SimulatorScreen(
                                 text = notice,
                                 color = TextPrimary,
                                 fontSize = 12.sp,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }
                             )
                             IconButton(
                                 onClick = { viewModel.clearNotice() },
@@ -304,14 +308,9 @@ fun SimulatorScreen(
 
     if (state.showSettings) {
         SettingsDialog(
-            initialOkxApiKey = state.okxApiKey,
-            initialOkxSecret = state.okxSecret,
-            initialOkxPassphrase = state.okxPassphrase,
             initialGeminiApiKey = state.geminiApiKey,
             onDismiss = { viewModel.setShowSettings(false) },
-            onSave = { okxKey, okxSec, okxPass, geminiKey ->
-                viewModel.saveSettings(okxKey, okxSec, okxPass, geminiKey)
-            }
+            onSave = { geminiKey -> viewModel.saveSettings(geminiKey) }
         )
     }
 }
@@ -735,7 +734,11 @@ private fun MarketCandlesCard(
             Text("DỮ LIỆU NẾN OKX", color = LimeAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = LimeAccent, strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp).semantics { contentDescription = "Đang tải nến OKX" },
+                    color = LimeAccent,
+                    strokeWidth = 2.dp
+                )
             } else if (candles.isNotEmpty()) {
                 Text("${candles.size} nến đóng", color = TextSecondary, fontSize = 10.sp)
             }
@@ -755,10 +758,10 @@ private fun MarketCandlesCard(
                 Text(
                     text = utcFormat.format(Date(candle.timestamp)),
                     color = TextMuted,
-                    fontSize = 9.sp
+                    fontSize = 11.sp
                 )
                 Text(
-                    text = "O ${priceFormat.format(candle.open)}   H ${priceFormat.format(candle.high)}   L ${priceFormat.format(candle.low)}   C ${priceFormat.format(candle.close)}",
+                    text = "Mở ${priceFormat.format(candle.open)}  Cao ${priceFormat.format(candle.high)}\nThấp ${priceFormat.format(candle.low)}  Đóng ${priceFormat.format(candle.close)}",
                     color = TextPrimary,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
@@ -769,72 +772,47 @@ private fun MarketCandlesCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun KellyMetricsRow(
     metrics: com.example.okxkelly.data.model.SimMetrics?,
     startCapital: Double,
     currentCapital: Double
 ) {
-    Row(
+    val pnl = currentCapital - startCapital
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, BorderDark, RoundedCornerShape(12.dp))
             .background(SurfaceDark, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(16.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = metrics?.let { "WIN RATE · ${it.totalTrades} lệnh" } ?: "WIN RATE · -- lệnh",
-                color = TextSecondary,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = if (metrics != null) String.format(Locale.US, "%.1f%%", metrics.winRate * 100) else "--",
-                color = TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = "R/R (b)", color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = if (metrics != null) String.format(Locale.US, "%.2f", metrics.b) else "--",
-                color = TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Column(modifier = Modifier.weight(1.2f)) {
-            Text(text = "KELLY (f*)", color = LimeAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = if (metrics != null) String.format(Locale.US, "%.2f%%", metrics.kellyFraction * 100) else "--",
-                color = LimeAccent,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        val pnl = currentCapital - startCapital
-        Column(modifier = Modifier.weight(1.2f), horizontalAlignment = Alignment.End) {
-            Text(text = "LÃI / LỖ", color = TextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = String.format(Locale.US, "%s$%.2f", if (pnl >= 0) "+" else "", pnl),
-                color = if (pnl >= 0) WinGreen else LossRed,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            maxItemsInEachRow = 2,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = metrics?.let { "Tỷ lệ thắng · ${it.totalTrades} lệnh" } ?: "Tỷ lệ thắng", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = metrics?.let { String.format(Locale.US, "%.1f%%", it.winRate * 100) } ?: "--", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "R:R · lãi/lỗ", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = metrics?.let { String.format(Locale.US, "%.2f", it.b) } ?: "--", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "Kelly đầy đủ (f*)", color = LimeAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = metrics?.let { String.format(Locale.US, "%.2f%%", it.kellyFraction * 100) } ?: "--", color = LimeAccent, fontSize = 20.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "Lãi/lỗ mô phỏng", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = String.format(Locale.US, "%s$%.2f", if (pnl >= 0) "+" else "", pnl), color = if (pnl >= 0) WinGreen else LossRed, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            }
         }
     }
 }
