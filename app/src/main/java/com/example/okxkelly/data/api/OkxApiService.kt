@@ -17,7 +17,7 @@ interface OkxApiService {
     suspend fun getHistoryCandles(
         @Query("instId") instId: String,
         @Query("bar") bar: String,
-        @Query("limit") limit: Int = 100,
+        @Query("limit") limit: Int = 300,
         @Query("after") after: String? = null
     ): OkxCandleResponse
 }

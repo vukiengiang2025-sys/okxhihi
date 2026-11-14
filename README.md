@@ -4,7 +4,9 @@
 
 ## Tính năng và quy ước mô phỏng
 
-- Lấy nến thị trường công khai từ OKX, backtest RSI và tính Kelly fraction từ các giao dịch đã đóng.
+- Lấy nến thị trường công khai từ OKX, backtest RSI và tính Kelly fraction từ các giao dịch đã đóng. Mẫu lịch sử chọn được 100, 300, 1.000, 5.000 hoặc 10.000 nến (mặc định 1.000).
+- Tự phân trang lịch sử theo cursor `after`, tối đa 300 nến mỗi request theo [tài liệu OKX](https://www.okx.com/docs-v5/en/); pacing 150 ms/request, retry giới hạn khi OKX báo rate-limit và hiển thị tiến độ. Nếu OKX không còn dữ liệu cũ hơn, ứng dụng báo số nến thực nhận thay vì giả vờ đủ mẫu.
+- Hỗ trợ timeframe cố định từ 1m đến 1W: 1m/3m/5m/15m/30m, 1H/2H/4H/6H/12H, 1D/2D/3D và 1W. Polling live giãn dần theo timeframe để giảm request thừa.
 - Tín hiệu RSI chỉ được biết sau khi nến đóng; lệnh được giả định khớp tại giá mở cửa nến kế tiếp, không dùng giá close tạo tín hiệu.
 - Nến vào lệnh được kiểm tra TP/SL theo OHLC; nếu TP và SL cùng bị chạm trong một nến, giả định bất lợi là SL xảy ra trước. Không vào lại cùng nến vừa đóng lệnh.
 - Dữ liệu lịch sử có khoảng trống sẽ khiến backtest từ chối kết quả; vị thế còn mở cuối mẫu được báo riêng và không tính vào Kelly.

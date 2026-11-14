@@ -6,6 +6,9 @@ import androidx.security.crypto.MasterKey
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.okxkelly.data.api.NetworkClients
+import com.example.okxkelly.data.api.OkxIntervals
+import com.example.okxkelly.data.api.OkxHistoryStopReason
+import com.example.okxkelly.data.api.loadOkxCandleHistory
 import com.example.okxkelly.data.api.parseOkxCandle
 import com.example.okxkelly.data.model.Candle
 import com.example.okxkelly.data.model.CapitalPoint
@@ -30,10 +33,12 @@ import java.util.Locale
 
 private const val MAX_RECENT_TRADES = 500
 private const val MAX_EQUITY_POINTS = 2_000
+internal val HISTORY_LIMIT_OPTIONS = listOf(100, 300, 1_000, 5_000, 10_000)
 
 data class SimulatorUiState(
     val instId: String = "BTC-USDT",
     val bar: String = "1m",
+    val historyLimit: Int = 1_000,
     val startCapital: Double = 1000.0,
     val tpPercentStr: String = "2.0",
     val slPercentStr: String = "1.0",
@@ -97,11 +102,31 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     private fun invalidateCalibration(transform: (SimulatorUiState) -> SimulatorUiState) {
-        if (!_uiState.value.isRunning) _uiState.update { transform(it).copy(metrics = null) }
+        if (_uiState.value.isRunning) return
+        val wasCalibrating = _uiState.value.isCalibrating
+        if (wasCalibrating) calibrationJob?.cancel()
+        _uiState.update { current ->
+            transform(current).copy(
+                metrics = null,
+                liveCandles = emptyList(),
+                isCalibrating = false,
+                userNotice = if (wasCalibrating) {
+                    "Cấu hình đã đổi; đã hủy lượt tải lịch sử cũ. Hãy chạy backtest lại."
+                } else {
+                    "Thông số đã đổi; kết quả cũ đã xóa. Hãy chạy Backtest OKX lại."
+                }
+            )
+        }
     }
     fun updateInstId(newInstId: String) = invalidateCalibration { it.copy(instId = newInstId.trim()) }
 
-    fun updateBar(newBar: String) = invalidateCalibration { it.copy(bar = newBar) }
+    fun updateBar(newBar: String) {
+        if (newBar in OkxIntervals.supportedBars) invalidateCalibration { it.copy(bar = newBar) }
+    }
+
+    fun updateHistoryLimit(limit: Int) {
+        if (limit in HISTORY_LIMIT_OPTIONS) invalidateCalibration { it.copy(historyLimit = limit) }
+    }
 
     fun updateStartCapital(value: Double) {
         if (!_uiState.value.isRunning) _uiState.update { it.copy(startCapital = value, currentCapital = value) }
@@ -144,20 +169,41 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
     fun autoCalibrate() {
         if (_uiState.value.isRunning || _uiState.value.isCalibrating) return
         calibrationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isCalibrating = true, metrics = null, liveCandles = emptyList(), userNotice = "Đang tải nến công khai từ OKX để backtest...") }
+            val state = _uiState.value
+            _uiState.update {
+                it.copy(
+                    isCalibrating = true,
+                    metrics = null,
+                    liveCandles = emptyList(),
+                    userNotice = "Đang tải ${state.historyLimit} nến lịch sử công khai từ OKX..."
+                )
+            }
             try {
-                val state = _uiState.value
-                val response = NetworkClients.okxService.getHistoryCandles(
-                    instId = state.instId,
-                    bar = state.bar,
-                    limit = 100
+                val history = loadOkxCandleHistory(
+                    targetCount = state.historyLimit,
+                    fetchPage = { limit, after ->
+                        NetworkClients.okxService.getHistoryCandles(
+                            instId = state.instId,
+                            bar = state.bar,
+                            limit = limit,
+                            after = after
+                        )
+                    },
+                    onProgress = { loaded, target, pages ->
+                        _uiState.update {
+                            it.copy(userNotice = "Đang tải lịch sử OKX: $loaded/$target nến đã xác nhận (trang $pages)...")
+                        }
+                    }
                 )
-                if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
-                val candles = KellyStrategy.normalizeCandles(
-                    response.data.mapNotNull { parseOkxCandle(it) }.filter { it.confirm }
-                )
+                when (history.stopReason) {
+                    OkxHistoryStopReason.TARGET_REACHED,
+                    OkxHistoryStopReason.NO_MORE_DATA -> Unit
+                    OkxHistoryStopReason.CURSOR_STALLED -> error("OKX cursor không tiến; dữ liệu lịch sử chưa đầy đủ nên không chạy backtest.")
+                    OkxHistoryStopReason.PAGE_LIMIT_REACHED -> error("Đã chạm giới hạn an toàn ${history.pagesFetched} trang, mới nhận ${history.candles.size}/${state.historyLimit} nến; hãy giảm cỡ mẫu.")
+                }
+                val candles = KellyStrategy.normalizeCandles(history.candles)
                 val latestState = _uiState.value
-                if (latestState.instId != state.instId || latestState.bar != state.bar || latestState.tpPercentStr != state.tpPercentStr || latestState.slPercentStr != state.slPercentStr) {
+                if (latestState.instId != state.instId || latestState.bar != state.bar || latestState.historyLimit != state.historyLimit || latestState.tpPercentStr != state.tpPercentStr || latestState.slPercentStr != state.slPercentStr) {
                     _uiState.update { it.copy(isCalibrating = false, userNotice = "Cấu hình đã thay đổi trong lúc tải; kết quả cũ bị bỏ qua. Hãy chạy lại.") }
                     return@launch
                 }
@@ -167,7 +213,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     _uiState.update {
                         it.copy(
                             isCalibrating = false,
-                            userNotice = "Không đủ dữ liệu lịch sử để đánh giá (nhận được ${candles.size} nến)"
+                            userNotice = "Không đủ nến đã xác nhận để đánh giá (nhận ${candles.size}/${state.historyLimit}); cần tối thiểu 50."
                         )
                     }
                     return@launch
@@ -177,11 +223,11 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                     ?: error("Take profit phải nằm trong khoảng 0,01%–50%")
                 val slPct = state.slPercentStr.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.01..50.0 }
                     ?: error("Stop loss phải nằm trong khoảng 0,01%–50%")
-                val expectedInterval = barIntervalMillis(state.bar) ?: error("Khung nến không hợp lệ")
+                val expectedInterval = OkxIntervals.intervalMillis(state.bar) ?: error("Khung nến không hợp lệ")
                 val backtest = KellyStrategy.backtestDetailed(candles, tpPct / 100.0, slPct / 100.0, expectedInterval)
                 val metrics = backtest.metrics
                 val current = _uiState.value
-                if (current.instId != state.instId || current.bar != state.bar || current.tpPercentStr != state.tpPercentStr || current.slPercentStr != state.slPercentStr) {
+                if (current.instId != state.instId || current.bar != state.bar || current.historyLimit != state.historyLimit || current.tpPercentStr != state.tpPercentStr || current.slPercentStr != state.slPercentStr) {
                     _uiState.update { it.copy(isCalibrating = false, metrics = null, userNotice = "Thông số đã đổi trong lúc hiệu chuẩn; hãy chạy lại.") }
                     return@launch
                 }
@@ -191,11 +237,15 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
                         metrics = metrics,
                         userNotice = buildString {
                             if (metrics.totalTrades == 0) {
-                                append("Backtest hoàn tất nhưng 100 nến gần nhất không tạo lệnh đóng nào; Kelly=0 nên không thể chạy mô phỏng. Hãy thử khung thời gian khác hoặc chạy lại sau.")
+                                append("Backtest hoàn tất nhưng mẫu ${candles.size} nến không tạo lệnh đóng nào; Kelly=0 nên không thể chạy mô phỏng. Hãy thử khung thời gian khác hoặc chạy lại sau.")
                             } else {
                                 append("Backtest hoàn tất từ ${metrics.totalTrades} lệnh đóng: WinRate ${(metrics.winRate * 100).toInt()}%, Kelly f* ${(metrics.kellyFraction * 100).toInt()}%.")
                                 if (metrics.totalTrades < 30) append(" Mẫu dưới 30 lệnh nên ước lượng Kelly rất nhiễu; chỉ xem là tham khảo.")
                                 if (backtest.openTrade != null) append(" Còn 1 lệnh chưa đóng ở cuối mẫu; lệnh này không nằm trong Kelly.")
+                            }
+                            append(" Mẫu dữ liệu: ${candles.size}/${state.historyLimit} nến.")
+                            if (history.historyExhausted && candles.size < state.historyLimit) {
+                                append(" OKX không trả đủ lịch sử yêu cầu; kết quả chỉ dùng số nến thực nhận.")
                             }
                         }
                     )
@@ -236,11 +286,12 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        val expectedIntervalMillis = barIntervalMillis(state.bar)
+        val expectedIntervalMillis = OkxIntervals.intervalMillis(state.bar)
         if (expectedIntervalMillis == null) {
-            _uiState.update { it.copy(userNotice = "Khung nến không được hỗ trợ; vui lòng chọn 1m, 5m, 15m hoặc 1H.") }
+            _uiState.update { it.copy(userNotice = "Khung nến không được hỗ trợ.") }
             return
         }
+        val pollingDelayMillis = OkxIntervals.livePollingDelayMillis(expectedIntervalMillis)
         tradeCount = 0
         consecutiveApiFailures = 0
         lastProcessedCandleTimestamp = Long.MIN_VALUE
@@ -266,7 +317,7 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
         simulationJob = viewModelScope.launch {
             while (isActive && _uiState.value.isRunning) {
                 processTick()
-                delay(3000L) // Poll every 3 seconds
+                delay(pollingDelayMillis)
             }
         }
     }
@@ -277,18 +328,10 @@ class SimulatorViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(isRunning = false, userNotice = "Đã dừng giả lập.") }
     }
 
-    private fun barIntervalMillis(bar: String): Long? = when (bar) {
-        "1m" -> 60_000L
-        "5m" -> 5 * 60_000L
-        "15m" -> 15 * 60_000L
-        "1H" -> 60 * 60_000L
-        else -> null
-    }
-
     private suspend fun processTick() {
         val state = _uiState.value
         try {
-            val interval = barIntervalMillis(state.bar) ?: error("Unsupported candle interval")
+            val interval = OkxIntervals.intervalMillis(state.bar) ?: error("Unsupported candle interval")
             val response = NetworkClients.okxService.getCandles(state.instId, state.bar, limit = 50)
             if (response.code != "0") error(response.msg ?: "OKX API error (${response.code})")
             val candles = KellyStrategy.normalizeCandles(

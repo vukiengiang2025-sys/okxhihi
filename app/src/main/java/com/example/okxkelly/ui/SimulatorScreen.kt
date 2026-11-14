@@ -3,6 +3,7 @@ package com.example.okxkelly.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import com.example.okxkelly.data.api.OkxIntervals
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -179,6 +180,7 @@ fun SimulatorScreen(
                     state = state,
                     onInstIdChange = { viewModel.updateInstId(it) },
                     onBarChange = { viewModel.updateBar(it) },
+                    onHistoryLimitChange = { viewModel.updateHistoryLimit(it) },
                     onCapitalChange = { viewModel.updateStartCapital(it) },
                     onTpChange = { viewModel.updateTpPercent(it) },
                     onSlChange = { viewModel.updateSlPercent(it) },
@@ -457,6 +459,7 @@ private fun ParametersCard(
     state: SimulatorUiState,
     onInstIdChange: (String) -> Unit,
     onBarChange: (String) -> Unit,
+    onHistoryLimitChange: (Int) -> Unit,
     onCapitalChange: (Double) -> Unit,
     onTpChange: (String) -> Unit,
     onSlChange: (String) -> Unit,
@@ -465,6 +468,7 @@ private fun ParametersCard(
     onMaxTradesChange: (Int) -> Unit
 ) {
     var expandedBar by remember { mutableStateOf(false) }
+    var expandedHistoryLimit by remember { mutableStateOf(false) }
     var expandedMode by remember { mutableStateOf(false) }
     var expandedKelly by remember { mutableStateOf(false) }
 
@@ -526,7 +530,7 @@ private fun ParametersCard(
                     onDismissRequest = { expandedBar = false },
                     modifier = Modifier.background(SurfaceDark)
                 ) {
-                    listOf("1m", "5m", "15m", "1H").forEach { b ->
+                    OkxIntervals.supportedBars.forEach { b ->
                         DropdownMenuItem(
                             modifier = Modifier.testTag("bar_option_$b"),
                             text = { Text(b, color = TextPrimary) },
@@ -540,6 +544,40 @@ private fun ParametersCard(
             }
         }
 
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expandedHistoryLimit = true },
+                enabled = !state.isRunning,
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                modifier = Modifier.fillMaxWidth().height(56.dp).testTag("history_limit_dropdown_button")
+            ) {
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                    Text("SỐ NẾN BACKTEST", color = TextSecondary, fontSize = 9.sp)
+                    Text("${state.historyLimit} nến", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "Chọn số nến lịch sử", tint = LimeAccent)
+            }
+            DropdownMenu(
+                expanded = expandedHistoryLimit,
+                onDismissRequest = { expandedHistoryLimit = false },
+                modifier = Modifier.background(SurfaceDark)
+            ) {
+                HISTORY_LIMIT_OPTIONS.forEach { count ->
+                    DropdownMenuItem(
+                        modifier = Modifier.testTag("history_limit_option_$count"),
+                        text = { Text("${count} nến", color = TextPrimary) },
+                        onClick = {
+                            onHistoryLimitChange(count)
+                            expandedHistoryLimit = false
+                        }
+                    )
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(10.dp))
 
         // Vốn ban đầu (USD)
